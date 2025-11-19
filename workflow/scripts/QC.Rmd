@@ -40,7 +40,6 @@ args <-  params$args
 output_dir <- args[1]
 
 samples <- list.files(output_dir)
-annotation <- read_table("../../resources/annotation.tsv")
 
 ```
 
@@ -49,7 +48,7 @@ annotation <- read_table("../../resources/annotation.tsv")
 On of the largest caveats in RNA sequencing, and extracellular RNA sequencing especially, is DNA contamination. Luckily, we can determine the extent of this problem by investigation the metrics of our output. None of these metrics on their own can determine DNA contamination but, together, they can indicate an issue.
 
 ### Strandedness
-Many RNA sequencing library preparation protocols use a stranded approach. This means that the reads generated from a transcript map specifically to either the coding or template strand. The SMARTer® Stranded Total RNA-Seq Kit - Pico Input Mammalian, for example, is a stranded protocol. More specifically, it is a reverse stranded protocol, meaning that the reads map to the template strand. When sequencing DNA, both strands will be sequenced and your stranded library preparation becomes unstranded. Ideally, the fraction of "reads mapped to template strand" is close to 1. The closer this value gets to 0.5, the more likely your data contains some DNA data.
+Many RNA sequencing library preparation protocols use a stranded approach. This means that the reads generated from a transcript map specifically to either the coding or template strand. The SMARTer® Stranded Total RNA-Seq Kit - Pico Input Mammalian, for example, is a stranded protocol. When sequencing DNA, both strands will be sequenced and your stranded library preparation becomes unstranded. Ideally, the fraction of "reads mapped to template strand" is close to 1. The closer this value gets to 0.5, the more likely your data contains some DNA data.
 
 ```{r strandedness, echo = FALSE}
 strandedness <- tibble()
@@ -58,7 +57,7 @@ for (sample in samples) {
   x <- read_table(paste0(output_dir, "/", sample, "/08_rseqc/", sample, "_strandedness.txt"), skip = 3, col_names = FALSE)$X7
   strandedness <- rbind(strandedness, 
                         tibble(sample = sample, 
-                               type = factor(c("unsure", "mapped to coding strand", "mapped to template strand"), levels = c("unsure", "mapped to template strand", "mapped to coding strand")), 
+                               type = factor(c("failed to determine", "1+-,1-+,2++,2--", "1++,1--,2+-,2-+"), levels = c("failed to determine", "1+-,1-+,2++,2--", "1++,1--,2+-,2-+")), 
                                fraction = x)
   )
 }
@@ -67,9 +66,9 @@ ggplotly(strandedness %>%
   ggplot(aes(sample, fraction, fill = type)) +
   geom_bar(stat = "identity") +
   theme_minimal() +
-  theme(axis.title = element_text(face = "bold"), 
+  theme(axis.title = element_text(size = 15, color = "#264a6c"), 
         legend.title = element_blank(),
-        axis.text.x = element_text(angle = 45)) +
+        axis.text.x = element_text(angle = 45), size = 13, color = "#264a6c") +
   xlab("") + 
   ylab("fraction of\ndeduplicated reads\n") +
   scale_fill_manual(values = color_palette))
@@ -97,88 +96,84 @@ ggplotly(spliced_reads %>%
   ggplot(aes(sample, fraction, fill = type)) +
   geom_bar(stat = "identity") +
   theme_minimal() + 
-  theme(axis.title = element_text(face = "bold"), 
+  theme(axis.title = element_text(size = 15, color = "#264a6c"), 
         legend.title = element_blank(),
-        axis.text.x = element_text(angle = 45, hjust = 1)) +
+        axis.text.x = element_text(angle = 45, hjust = 1, 
+                                   size = 13, color = "#264a6c")) +
   xlab("") + 
   ylab("fraction of raw reads\n") +
   scale_fill_manual(values = color_palette))
 ```
 
-## Biotype distribution
-```{r biotype_distribution, echo = FALSE}
-counts <- tibble()
+### Duplication rates
+The duplication rate represents the number of unique RNA molecules that were sequenced. Because of the low RNA concentration used in this kit, the percentage of duplicates can be quite high. However, a sample strongly deviating from others in terms of duplication rate, might indicate an issue.
+```{r duplication, echo = FALSE}
+duplication <- tibble()
+
+
 for (sample in samples) {
-  x <- read_table(paste0(output_dir, "/", sample, "/05_count/", sample, "_htseq_dedup_counts.txt"), col_names = FALSE)
+  duplication <- rbind(duplication,
+                  read_table(paste0(output_dir, "/", sample, "/04_dedup/umidedup.txt"), col_names = paste0("X", 1:8)) %>%
+                    tail(n = 6) %>%
+                    head(n = 2)
+                  %>% mutate(sample = sample))
+}
+
+ggplotly(duplication %>%
+  mutate(group = ifelse(X8 == "Read", "total", "unique"),
+         reads = ifelse(X8 == "Read", as.double(str_remove(X7, ",")), as.double(X8))) %>%
+  dplyr::select(sample, group, reads) %>% 
+  spread(key = group, value = reads) %>%
+  mutate(`reads removed` = (total - unique) / total,
+         `reads kept` = unique / total) %>%
+  ggplot(aes(TRUE, `reads removed`, group = sample)) +
+  geom_boxplot(outliers = FALSE, fill = "#264a6c") +
+  geom_jitter(width = 0.1, height = 0, shape = 21, col = "white", fill = "#264a6c", size = 4) +
+  theme_minimal() +
+  theme(axis.text = element_text(angle = 45, hjust = 1, 
+                                   size = 10, color = "#264a6c"),
+        axis.title  = element_text(size = 15, color = "#264a6c"),
+        axis.text.x = element_blank()) +
+  ylab("\nfraction of reads removed after deduplication\n") + 
+  xlab("")+
+  ylim(0,1)) 
+```
+
+### Spike fraction
+The spike fraction indicates the percentage of counts assigned to the spike-in RNAs. Ideally, the spikes take up a portion of the data large enough to be able to perform downsteam analyses, such as normalization. However, exceedingly high spike fractions hoard an excessive amount of data, leaving little for true biological reads. 
+```{r spike_fraction, echo = FALSE}
+
+counts <- tibble()
+
+for (sample in samples) {
   counts <- rbind(counts,
-  x %>% mutate(sample = sample))
+                  read_table(paste0(output_dir, "/", sample, "/05_count/", sample, "_htseq_dedup_counts.txt"), col_names = c("target", "count")) %>% mutate(sample = str_extract(sample, "RNA[0-9]+")))
 }
 
 ggplotly(counts %>%
-  filter(grepl("ENSG", X1)) %>%
-  left_join(annotation, by = c("X1" = "gene_id")) %>%
-  group_by(sample, biotype) %>%
-  summarise(count = sum(X2)) %>%
+  filter(!grepl("__", target)) %>%
+  mutate(group = ifelse(grepl("^R", target), 'sequin',
+                        ifelse(grepl("ERCC", target), 'ERCC', 'human'))) %>%
+  group_by(sample, group) %>%
+  summarise(total_counts = sum(count)) %>%
   ungroup() %>%
   group_by(sample) %>%
-  mutate(fr = count / sum(count)) %>%
+  mutate(fraction = total_counts / sum(total_counts),
+         group = factor(group, levels = c("human", "ERCC", "sequin"))) %>%
   ungroup() %>%
-  mutate(new_biotype = ifelse(fr < 0.005, "less than 1%", biotype)) %>%
-  group_by(new_biotype) %>%
-  mutate(avg_over_biotype = mean(fr)) %>%
-  ungroup() %>%
-  arrange(desc(avg_over_biotype)) %>%
-  mutate(new_biotype = factor(new_biotype, levels = unique(new_biotype))) %>% 
-  group_by(sample, new_biotype) %>%
-  summarise(fr = sum(fr)) %>%
-  ungroup() %>%
-  ggplot(aes(sample, fr, fill = new_biotype)) +
-  geom_histogram(stat = "identity") +
-  theme_minimal() + 
-  theme(axis.title = element_text(face = "bold"), 
-        legend.title = element_blank(),
-        axis.text.x = element_text(angle = 45, hjust = 1)) +
-  xlab("") + 
-  ylab("fraction of counts\n") +
-  scale_fill_manual(values = color_palette))
-```
-
-## Count distribution
-```{r counts_distribution, echo = FALSE}
-ggplotly(counts %>%
-  mutate(type = ifelse(grepl("__", X1), X1, 
-                  ifelse(grepl("^R", X1), "sequin",
-                    ifelse(grepl("^ERCC", X1), "ERCC", "genetic")))) %>%
-  mutate(type = factor(type, levels = c("__no_feature", "__ambiguous", "__too_low_aQual", "__not_aligned", "__alignment_not_unique", "sequin", "ERCC", "genetic"))) %>%
-  group_by(sample, type) %>%
-  summarise(count = sum(X2)) %>%
-  ungroup() %>%
-  group_by(sample) %>%
-  mutate(fr = count / sum(count)) %>%
-  ungroup() %>%
-  ggplot(aes(sample, fr, fill = type)) + 
-  geom_histogram(stat = "identity") +
-  theme_minimal() + 
-  theme(axis.title = element_text(face = "bold"), 
-        legend.title = element_blank(),
-        axis.text.x = element_text(angle = 45, hjust = 1)) +
-  xlab("") + 
-  ylab("fraction of counts\n") +
-  scale_fill_manual(values = color_palette))
-
-ggplotly(counts %>%
-  filter(!grepl("__|^R|ERCC", X1)) %>%
-  dplyr::rename(`log10(counts)` = X2) %>%
-  mutate(counts = 10^`log10(counts)`) %>%
-  ggplot(aes(`log10(counts)`, col = sample)) +
-  stat_ecdf(aes(`log10(counts)`, col = sample)) +
+  filter(group != "human") %>%
+  ggplot(aes(sample, fraction, fill = group)) +
+  geom_bar(stat = "identity") +
   theme_minimal() +
-  theme(axis.title = element_text(face = "bold"),
-        legend.position = "none",
-        axis.text.x = element_text(angle = 45, hjust = 1)) +
-  xlab("\ncounts") +
-  ylab("fraction of genes\n") +
-  scale_color_manual(values = rep(color_palette, 50)) +
-  scale_x_log10())
+  theme(axis.text.y = element_text(size = 13, color = "#264a6c"),
+        axis.title.y  = element_text(size = 15, color = "#264a6c"),
+        strip.text  = element_text(size = 15, color = "#264a6c"),
+        axis.text.x = element_text(angle = 45, hjust = 1, 
+                                   size = 13, color = "#264a6c")) +
+  xlab("") + 
+  ylab("fraction of unique counts\n") +
+  facet_wrap(~group, scales = "free") +
+  scale_fill_manual(values = color_palette))
 ```
+
 
