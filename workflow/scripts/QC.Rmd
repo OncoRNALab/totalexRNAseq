@@ -1,5 +1,5 @@
 ---
-title: "DNA contamination QC"
+title: "QC"
 output:
   html_document:
     theme: yeti # A clean and modern theme from Bootswatch
