@@ -33,4 +33,4 @@ snakemake --cores 4 --software-deployment-method apptainer --singularity-args "-
 ```
 Set the `--singularity-args` argument to the location where all indexes and annotation files can be found. 
 
-In theory, you could run the pipeline locally, but since it relies on STAR for read mapping, the complete index is loaded in memory. This is usually the drop in the emmer who is already full for you computer. 
+In theory, you could run the pipeline locally, but since it relies on STAR for read mapping, the complete index is loaded in memory. This is usually the final straw for an already overloaded computer.
