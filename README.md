@@ -5,7 +5,7 @@ This pipeline accompanies our lab protocol for total extracellular RNA sequencin
 ### Get the code
 You can download the code and necessary files by cloning the GitHub repository: 
 ```ruby 
-git clone https://github.com/jasperverwilt/totalexRNA.git
+git clone [https://github.com/OncoRNALab/totalexRNAseq.git]
 cd totalexRNA
 ```
 ### Snakemake
