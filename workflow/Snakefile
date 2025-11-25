@@ -157,7 +157,8 @@ rule fastqc:
 
 rule DNA_contamination:
     input: 
-        fastqc=expand(os.path.join(path, "{sample}/09_fastqc/{sample}.Aligned.sortedByCoord.out.dedup_fastqc.html"), sample = samples)
+        fastqc=expand(os.path.join(path, "{sample}/09_fastqc/{sample}.Aligned.sortedByCoord.out.dedup_fastqc.html"), sample = samples),
+        counts=expand(os.path.join(path, "{sample}/05_count/{sample}_htseq_counts.txt"), sample = samples)
     output:
         os.path.join(path, "QC.html")
     params:
