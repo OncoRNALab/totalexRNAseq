@@ -29,7 +29,7 @@ In addition, you should change the input and output folders in the config file u
 You can run the pipeline by running the following command in your terminal. The first line makes sure that, when environments are created, your local python packages are disregarded so that they are properly and newly installed in the environments.
 
 ```ruby
-snakemake --cores 4 --software-deployment-method apptainer --singularity-args "--bind /home/jverwilt/resources"
+snakemake --cores 4 --software-deployment-method apptainer --singularity-args "--bind /<path>/resources"
 ```
 Set the `--singularity-args` argument to the location where all indexes and annotation files can be found. 
 
