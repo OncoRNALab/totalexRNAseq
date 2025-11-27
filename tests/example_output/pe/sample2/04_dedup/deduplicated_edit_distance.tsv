@@ -1,0 +1,12 @@
+unique	unique_null	directional	directional_null	edit_distance
+1975	1975	1975	1975	Single_UMI
+0	0	0	0	0
+0	0	0	0	1
+0	0	0	0	2
+1	1	1	1	3
+4	4	4	3	4
+12	7	12	5	5
+17	19	17	20	6
+17	20	17	15	7
+2	2	2	9	8
+0	0	0	0	9

@@ -11,6 +11,7 @@ output:
     css: custom.css  # Link to your custom CSS file
 params:
   args: ''
+  sequencing: ''
   dark_mode: true  # Add parameter for enabling dark mode
 ---
 
@@ -107,36 +108,92 @@ ggplotly(spliced_reads %>%
 
 ### Duplication rates
 The duplication rate represents the number of unique RNA molecules that were sequenced. Because of the low RNA concentration used in this kit, the percentage of duplicates can be quite high. However, a sample strongly deviating from others in terms of duplication rate, might indicate an issue.
-```{r duplication, echo = FALSE}
+
+```{r duplication, echo=FALSE}
 duplication <- tibble()
 
+sequencing <- params$sequencing #sequencing mode (se or pe)
 
 for (sample in samples) {
-  duplication <- rbind(duplication,
-                  read_table(paste0(output_dir, "/", sample, "/04_dedup/umidedup.txt"), col_names = paste0("X", 1:8)) %>%
-                    tail(n = 6) %>%
-                    head(n = 2)
-                  %>% mutate(sample = sample))
+
+  umi_file <- file.path(output_dir, sample, "04_dedup", "umidedup.txt")
+  picard_file <- file.path(output_dir, sample, "04_dedup", "picarddedup.txt")
+
+  if (sequencing == "pe" && file.exists(umi_file)) {
+    # UMI-tools mode (paired-end)
+    x <- read_table(umi_file, col_names = paste0("X", 1:8)) %>%
+      tail(n = 6) %>% head(n = 2)
+
+    # Total reads = "Read" row (X8 == "Read"), numeric part of X7
+    total <- as.numeric(str_remove(x$X7[x$X8 == "Read"], ","))
+    unique <- as.numeric(x$X8[x$X8 == "Unique"])  # unique reads are in X8 #previously: x$X8 != "Read"
+
+    duplication <- rbind(
+      duplication,
+      tibble(
+        sample = sample,
+        total = total,
+        unique = unique,
+        removed = (total - unique) / total
+      )
+    )
+
+  } else if (sequencing == "se" && file.exists(picard_file)) {
+    # Picard mode (single-end)
+    x <- suppressMessages(
+      read_table(
+        picard_file,
+        comment = "#",
+        col_names = TRUE,
+        col_types = cols(
+          LIBRARY = col_character(),
+          UNPAIRED_READS_EXAMINED = col_double(),
+          READ_PAIRS_EXAMINED = col_double(),
+          SECONDARY_OR_SUPPLEMENTARY_RDS = col_double(),
+          UNMAPPED_READS = col_double(),
+          UNPAIRED_READ_DUPLICATES = col_double(),
+          READ_PAIR_DUPLICATES = col_double(),
+          READ_PAIR_OPTICAL_DUPLICATES = col_double(),
+          PERCENT_DUPLICATION = col_double(),
+          ESTIMATED_LIBRARY_SIZE = col_double()
+	)
+      )
+    )
+
+    total <- sum(x$UNPAIRED_READS_EXAMINED, na.rm=T)
+    dup <- sum(x$UNPAIRED_READ_DUPLICATES, na.rm=T)
+
+    duplication <- rbind(
+      duplication,
+      tibble(
+        sample = sample,
+        total = total,
+        unique = total - dup,
+        removed = dup / total
+      )
+    )
+  } else {
+    message("Skipping ", sample, ": no dedup file found.")
+  }
 }
 
-ggplotly(duplication %>%
-  mutate(group = ifelse(X8 == "Read", "total", "unique"),
-         reads = ifelse(X8 == "Read", as.double(str_remove(X7, ",")), as.double(X8))) %>%
-  dplyr::select(sample, group, reads) %>% 
-  spread(key = group, value = reads) %>%
-  mutate(`reads removed` = (total - unique) / total,
-         `reads kept` = unique / total) %>%
-  ggplot(aes(TRUE, `reads removed`, group = sample)) +
-  geom_boxplot(outliers = FALSE, fill = "#264a6c") +
-  geom_jitter(width = 0.1, height = 0, shape = 21, col = "white", fill = "#264a6c", size = 4) +
-  theme_minimal() +
-  theme(axis.text = element_text(angle = 45, hjust = 1, 
-                                   size = 10, color = "#264a6c"),
-        axis.title  = element_text(size = 15, color = "#264a6c"),
-        axis.text.x = element_blank()) +
-  ylab("\nfraction of reads removed after deduplication\n") + 
-  xlab("")+
-  ylim(0,1)) 
+if (nrow(duplication) == 0) {
+  cat("**No duplication files found — skipping duplication plot.**")
+} else {
+  ggplotly(
+    duplication %>%
+      ggplot(aes(x = TRUE, y = removed, group = sample)) +
+      geom_boxplot(outliers = FALSE, fill = "#264a6c") +
+      geom_jitter(width = 0.1, height = 0, shape = 21,
+                  col = "white", fill = "#264a6c", size = 4) +
+      theme_minimal() +
+      theme(axis.title = element_text(size = 15, color = "#264a6c"),
+            axis.text.x = element_blank()) +
+      ylab("\nFraction of reads removed after deduplication\n") +
+      xlab("") +
+      ylim(0, 1)
+  )
+}
 ```
 
 ### Spike fraction

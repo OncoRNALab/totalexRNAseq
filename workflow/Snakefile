@@ -1,4 +1,4 @@
-container: "docker://jverwilt/totalrna:v0.5"
+#workflow.container("docker://jverwilt/totalrna:v0.5")
 
 import os
 import pandas as pd
@@ -7,7 +7,8 @@ import pandas as pd
 configfile: "config/config.yml"
 path = config['output_dir']
 inputpath = config['input_dir']
-samples = os.listdir(inputpath)
+# Only directories = actual sample folders
+samples = [d for d in os.listdir(inputpath) if os.path.isdir(os.path.join(inputpath, d))]
 
 
 rule all: 
@@ -25,8 +26,11 @@ if config['sequencing'] in ["se"]:
             R1=os.path.join(path, "{sample}/01_combine/{sample}.fastq.gz")
         params:
             inputpath = inputpath
-        run:
-            shell("cat {params.inputpath}/{wildcards.sample}/*.fastq.gz > {output.R1}")
+        shell:
+            """
+            mkdir -p $(dirname {output.R1})
+            cat {params.inputpath}/{wildcards.sample}/*.fastq.gz > {output.R1}
+            """
 
 if config['sequencing'] in ["pe"]:
     rule combine_pe:
@@ -35,56 +39,78 @@ if config['sequencing'] in ["pe"]:
             R2=os.path.join(path, "{sample}/01_combine/{sample}_R2.fastq.gz")
         params:
             inputpath = inputpath
-        run:
-            shell("cat {params.inputpath}/{wildcards.sample}/*R1*.fastq.gz > {output.R1}")
-            shell("cat {params.inputpath}/{wildcards.sample}/*R2*.fastq.gz > {output.R2}")
+        shell:
+            """
+            mkdir -p $(dirname {output.R1})
+            mkdir -p $(dirname {output.R2})
+            cat {params.inputpath}/{wildcards.sample}/*R1*.fastq.gz > {output.R1}
+            cat {params.inputpath}/{wildcards.sample}/*R2*.fastq.gz > {output.R2}
+            """
 
-rule extract_umi:
-    input:
-        R1=os.path.join(path, "{sample}/01_combine/{sample}_R1.fastq.gz"),
-        R2=os.path.join(path, "{sample}/01_combine/{sample}_R2.fastq.gz")
-    output:
-        R1=os.path.join(path, "{sample}/02_extract_umi/{sample}_umi_R1.fastq.gz"),
-        R2=os.path.join(path, "{sample}/02_extract_umi/{sample}_umi_R2.fastq.gz"),
-        umilog=os.path.join(path, "{sample}/02_extract_umi/UMIextract.log")
-    shell:
-        'umi_tools extract --extract-method=string -I {input.R2} -L {output.umilog} --bc-pattern=NNNNNNNN --read2-in={input.R1} -S {output.R2} --read2-out={output.R1}'
+    rule extract_umi:
+        container: config["dockercontainer"]
+        input:
+            R1=os.path.join(path, "{sample}/01_combine/{sample}_R1.fastq.gz"),
+            R2=os.path.join(path, "{sample}/01_combine/{sample}_R2.fastq.gz")
+        output:
+            R1=os.path.join(path, "{sample}/02_extract_umi/{sample}_umi_R1.fastq.gz"),
+            R2=os.path.join(path, "{sample}/02_extract_umi/{sample}_umi_R2.fastq.gz"),
+            umilog=os.path.join(path, "{sample}/02_extract_umi/UMIextract.log")
+        shell:
+            """
+            mkdir -p $(dirname {output.R1})
+            mkdir -p $(dirname {output.R2})
+            umi_tools extract --extract-method=string -I {input.R2} -L {output.umilog} --bc-pattern=NNNNNNNN --read2-in={input.R1} -S {output.R2} --read2-out={output.R1}
+            """
 
-if config['sequencing'] in ["pe"]:
     rule cut:
+        container: config["dockercontainer"]
         input:
             R2=os.path.join(path, "{sample}/02_extract_umi/{sample}_umi_R2.fastq.gz")
         output:
             R2=os.path.join(path, "{sample}/02_extract_umi/{sample}_umi_trimmed_R2.fastq.gz")
         shell:
-            'cutadapt -u 6 -o {output.R2} {input.R2}'
+            """
+            mkdir -p $(dirname {output.R2})
+            cutadapt -u 6 -o {output.R2} {input.R2}
+            """
 
-if config['sequencing'] in ["pe"]:
     rule map_pe:
+        container: config["dockercontainer"]
         input:
             R1=os.path.join(path, "{sample}/02_extract_umi/{sample}_umi_R1.fastq.gz"),
             R2=os.path.join(path, "{sample}/02_extract_umi/{sample}_umi_trimmed_R2.fastq.gz")
         output:
-            os.path.join(path, "{sample}/03_map/{sample}.Aligned.sortedByCoord.out.bam")
+            bam=os.path.join(path, "{sample}/03_map/{sample}.Aligned.sortedByCoord.out.bam")
         params:
             path = path
+        resources:
+            mem_mb = config["resources"]["star_mem_mb"]
         shell:
-            'STAR --chimSegmentMin 10 --runThreadN 2 --genomeDir {config[index][star]} --readFilesCommand gunzip -c --outSAMtype BAM SortedByCoordinate --outFileNamePrefix {params.path}/{wildcards.sample}/03_map/{wildcards.sample}. --readFilesIn {input.R1} {input.R2} --outTmpDir /tmp/temp_star_{wildcards.sample}'
+            """
+            mkdir -p $(dirname {output.bam})
+            STAR --chimSegmentMin 10 --runThreadN 2 --genomeDir {config[index][star]} --readFilesCommand gunzip -c --outSAMtype BAM SortedByCoordinate --outFileNamePrefix {params.path}/{wildcards.sample}/03_map/{wildcards.sample}. --readFilesIn {input.R1} {input.R2} --outTmpDir {resources.tmpdir}/temp_star_{wildcards.sample}
+            """
 
 elif config['sequencing'] in ["se"]:
     rule map_se:
+        container: config["dockercontainer"]
         input:
             R1=os.path.join(path, "{sample}/01_combine/{sample}.fastq.gz"),
         output:
-            os.path.join(path, "{sample}/03_map/{sample}.Aligned.sortedByCoord.out.bam")
-        conda:
-            "envs/star.yaml"
+            bam=os.path.join(path, "{sample}/03_map/{sample}.Aligned.sortedByCoord.out.bam")
         params:
             path = path
+        resources:
+            mem_mb = config["resources"]["star_mem_mb"]
         shell:
-            'STAR --chimSegmentMin 10 --runThreadN 2 --genomeDir {config[index][star]} --readFilesCommand gunzip -c --outSAMtype BAM SortedByCoordinate --outFileNamePrefix {params.path}/{wildcards.sample}/03_map/{wildcards.sample}. --readFilesIn {input.R1} --outTmpDir /tmp/temp_star_{wildcards.sample}'
+            """
+            mkdir -p $(dirname {output.bam})
+            STAR --chimSegmentMin 10 --runThreadN 2 --genomeDir {config[index][star]} --readFilesCommand gunzip -c --outSAMtype BAM SortedByCoordinate --outFileNamePrefix {params.path}/{wildcards.sample}/03_map/{wildcards.sample}. --readFilesIn {input.R1} --outTmpDir {resources.tmpdir}/temp_star_{wildcards.sample}
+            """
 
 rule index:
+    container: config["dockercontainer"]
     input:
         os.path.join(path, "{sample}/03_map/{sample}.Aligned.sortedByCoord.out.bam")
     output:
@@ -94,6 +120,7 @@ rule index:
 
 if config['sequencing'] in ["pe"]:
     rule dedup_umi:
+        container: config["dockercontainer"]
         input:
             bam=os.path.join(path, "{sample}/03_map/{sample}.Aligned.sortedByCoord.out.bam"),
             bami=os.path.join(path, "{sample}/03_map/{sample}.Aligned.sortedByCoord.out.bam.bai")
@@ -103,10 +130,14 @@ if config['sequencing'] in ["pe"]:
         params: 
             path = path
         shell:
-            "umi_tools dedup -I {input.bam} --output-stats={params.path}/{wildcards.sample}/04_dedup/deduplicated --paired -S {output.bam} -L {output.log}"
+            """
+            mkdir -p $(dirname {output.bam})
+            umi_tools dedup -I {input.bam} --output-stats={params.path}/{wildcards.sample}/04_dedup/deduplicated --paired -S {output.bam} -L {output.log}
+            """
 
 elif config['sequencing'] in ["se"]:
     rule dedup_picard:
+        container: config["dockercontainer"]
         input:
             bam=os.path.join(path, "{sample}/03_map/{sample}.Aligned.sortedByCoord.out.bam")
         output:
@@ -116,21 +147,26 @@ elif config['sequencing'] in ["se"]:
             path = path
         shell:
             """
-            picard AddOrReplaceReadGroups I={input.bam} O={wildcards.sample}_temp.bam RGID=4 RGLB=lib1 RGPL=ILLUMINA RGPU=unit1 RGSM=20
+            mkdir -p $(dirname {output.bam})
+            picard AddOrReplaceReadGroups I={input.bam} O={wildcards.sample}_temp.bam RGID={wildcards.sample} RGLB=lib1 RGPL=ILLUMINA RGPU=unit1 RGSM={wildcards.sample} SORT_ORDER=coordinate
             picard MarkDuplicates I={wildcards.sample}_temp.bam O={output.bam} ASSUME_SORT_ORDER=coordinate VALIDATION_STRINGENCY=SILENT REMOVE_DUPLICATES=true M={output.log}
             rm {wildcards.sample}_temp.bam
             """
 
 rule count:
+    container: config["dockercontainer"]
     input:
         os.path.join(path, "{sample}/04_dedup/{sample}.Aligned.sortedByCoord.out.dedup.bam")
     output:
-        os.path.join(path, "{sample}/05_count/{sample}_htseq_dedup_counts.txt")
+        countsfile=os.path.join(path, "{sample}/05_count/{sample}_htseq_dedup_counts.txt")
     shell:
-        "htseq-count --format bam --order pos --nonunique none --stranded reverse {input} {config[reference][gtf]} > {output}"
-
+        """
+        mkdir -p $(dirname {output.countsfile})
+        htseq-count --format bam --order pos --nonunique none --stranded reverse {input} {config[reference][gtf]} > {output.countsfile}
+        """
 
 rule rseqc:
+    container: config["dockercontainer"]
     input:
         dedup=os.path.join(path, "{sample}/04_dedup/{sample}.Aligned.sortedByCoord.out.dedup.bam"),
         raw=os.path.join(path, "{sample}/03_map/{sample}.Aligned.sortedByCoord.out.bam")
@@ -140,30 +176,37 @@ rule rseqc:
         strandedness=os.path.join(path, "{sample}/08_rseqc/{sample}_strandedness.txt")
     shell:
         """
+        mkdir -p $(dirname {output.strandedness})
         bam_stat.py -i {input.dedup} > {output.bam_stat_dedup}
         bam_stat.py -i {input.raw} > {output.bam_stat_raw}
         infer_experiment.py -r {config[reference][bed]} -i {input.raw} > {output.strandedness}
         """
 
 rule fastqc:
+    container: config["dockercontainer"]
     input:
         os.path.join(path, "{sample}/08_rseqc/{sample}_strandedness.txt")
     output:
-        os.path.join(path, "{sample}/09_fastqc/{sample}.Aligned.sortedByCoord.out.dedup_fastqc.html")
+        fastqcfile=os.path.join(path, "{sample}/09_fastqc/{sample}.Aligned.sortedByCoord.out.dedup_fastqc.html")
     params:
         path = path
     shell:
-        "fastqc -o {params.path}/{wildcards.sample}/09_fastqc/ {params.path}/{wildcards.sample}/01_combine/* {params.path}/{wildcards.sample}/04_dedup/*.bam"
+        """
+        mkdir -p $(dirname {output.fastqcfile})
+        fastqc -o {params.path}/{wildcards.sample}/09_fastqc/ {params.path}/{wildcards.sample}/01_combine/* {params.path}/{wildcards.sample}/04_dedup/*.bam
+        """
 
 rule DNA_contamination:
+    container: config["dockercontainer"]
     input: 
         fastqc=expand(os.path.join(path, "{sample}/09_fastqc/{sample}.Aligned.sortedByCoord.out.dedup_fastqc.html"), sample = samples),
-        counts=expand(os.path.join(path, "{sample}/05_count/{sample}_htseq_counts.txt"), sample = samples)
+        counts=expand(os.path.join(path, "{sample}/05_count/{sample}_htseq_dedup_counts.txt"), sample = samples)
     output:
         os.path.join(path, "QC.html")
     params:
-        path = path
+        path = path,
+        sequencing=config["sequencing"]
     shell:
-        "Rscript --vanilla workflow/scripts/write_rmarkdown.R {params.path} {output}"
+        "Rscript --vanilla workflow/scripts/write_rmarkdown.R {params.path} {output} {params.sequencing}"
 
 
