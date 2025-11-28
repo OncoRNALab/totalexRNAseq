@@ -66,3 +66,6 @@ The workflow produces:
 - A final HTML report across samples: QC.html (in the main output folder)
 
 See the `tests/example_output` folder for an example of the pipeline output corresponding to the `se` and `pe` files in `tests/input`
+
+## Protocol paper data
+cfRNA plasma sample count files used in the protocol paper are in `paper_countdata`
