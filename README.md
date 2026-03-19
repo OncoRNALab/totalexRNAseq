@@ -1,6 +1,6 @@
-# Automated and manual extracellular total RNA human blood plasma sequencing
+# Processing total extracellular RNA sequencing data from human biofluid samples
 
-This pipeline accompanies our lab protocol for total extracellular RNA sequencing of human blood plasma. It provides a complete Snakemake workflow for processing both single-end and paired-end extracellular RNA sequencing data in a fully reproducible containerized environment.
+This pipeline accompanies our lab protocol for total extracellular RNA sequencing of human biofluids. It provides a complete Snakemake workflow for processing both single-end and paired-end extracellular RNA sequencing data in a fully reproducible containerized environment.
 
 ## Preparations
 
