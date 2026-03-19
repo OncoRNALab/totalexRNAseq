@@ -1,4 +1,4 @@
-# Processing total RNA sequencing data of extracellular RNA from human biofluid samples
+# Total RNA sequencing data processing of extracellular RNA from human biofluid samples
 
 This pipeline accompanies our lab protocol for total extracellular RNA sequencing of human biofluids. It provides a complete Snakemake workflow for processing both single-end and paired-end extracellular RNA sequencing data in a fully reproducible containerized environment.
 
